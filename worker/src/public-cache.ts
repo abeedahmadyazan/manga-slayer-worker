@@ -18,7 +18,7 @@ export async function publicSourceCache(scope:object,key:string,loader:()=>Promi
   try {
     const value=await loader(),text=JSON.stringify(value),until=Date.now()+ttl*1000;
     if(text.length<=1_000_000) {
-      if(memory.size>=64) memory.delete(memory.keys().next().value!);
+      if(memory.size>=8) memory.delete(memory.keys().next().value!);
       memory.set(key,{until,value});
       if(edge) try {await edge.put(request,new Response(text,{headers:{'content-type':'application/json','cache-control':'public, max-age=604800','x-source-until':String(until)}}));} catch { /* no database fallback writes */ }
     }

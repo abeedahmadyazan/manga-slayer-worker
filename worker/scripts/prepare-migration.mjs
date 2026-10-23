@@ -42,6 +42,7 @@ for(const [manga,entries] of titles) {
 }
 for(const [bucket,payload] of buckets)insert('source_chapter_buckets',{bucket,payload:JSON.stringify(payload)});
 for(const row of db.prepare('SELECT * FROM source_sync').all())insert('source_sync',row);
+sql.push(readFileSync('scripts/mark-imported-migrations.sql','utf8'));
 writeFileSync(output,sql.join('\n'));
 console.log(JSON.stringify({titles:titles.size,chapters:ids.size,snapshotParts:partsCount,lookupBuckets:buckets.size,privateDocuments,legacyImages,orphanMappings,output},null,2));
 db.close();

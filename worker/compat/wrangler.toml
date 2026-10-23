@@ -1,0 +1,8 @@
+name = "yz-manga-api-v2"
+account_id = "ce915f347feab9809e8fb11edb8a4d51"
+main = "worker.ts"
+compatibility_date = "2026-10-23"
+workers_dev = true
+
+[triggers]
+crons = []

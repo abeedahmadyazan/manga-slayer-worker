@@ -1,4 +1,5 @@
-name = "yz-manga-api-v2"
+name = "manga-slayer-api"
+account_id = "b8fb76bdaef081cfdfe3610ae84fc522"
 main = "src/index.ts"
 compatibility_date = "2026-10-23"
 
@@ -12,8 +13,8 @@ ALLOWED_ORIGINS = "*"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "yz-manga-data-v2"
-database_id = "c39a757d-47aa-4ab6-a089-7a0cde2934e4"
+database_name = "manga-slayer-data"
+database_id = "9827e055-910d-48ea-9c9c-7d8ebde8bbec"
 migrations_dir = "migrations"
 
 [triggers]

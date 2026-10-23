@@ -261,6 +261,19 @@ await check('1200 chapter import uses compact rows and less than 20 queries, rep
  assert.equal((await loadChapterIndex(env.DB,45678)).length,1200);
 });
 
+await check('two comments per chapter, shared reply cooldown and deletion free a slot',async()=>{
+ const target=987654;
+ const create=()=>handleCommentRoutes(new Request(origin+'/manga-app-api/add-chapter-comment',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:`chapter_id=${target}&comment_text=Test+${crypto.randomUUID()}`}),env,claims);
+ await put('profiles/author/postGate/shared',{lastAt:1});
+ const first=await create();assert.equal(first!.status,200);const id=(await first!.json() as any).response.data.chapter_comment_id;
+ const reply=()=>handleCommentRoutes(new Request(origin+'/manga-app-api/add-chapter-comment-reply',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:`chapter_comment_id=${id}&reply_text=Reply+${crypto.randomUUID()}`}),env,claims);
+ assert.equal((await reply())!.status,429,'replies share the minute gate');
+ await put('profiles/author/postGate/shared',{lastAt:1});assert.equal((await create())!.status,200);
+ await put('profiles/author/postGate/shared',{lastAt:1});assert.equal((await create())!.status,409);
+ const deletion=await handleCommentRoutes(new Request(origin+'/manga-app-api/delete-chapter-comment?chapter_comment_id='+id,{method:'DELETE'}),env,claims);
+ assert.equal(deletion!.status,200);assert.equal((await create())!.status,200,'deleting one frees exactly one comment slot');
+});
+
 await check('exhausted source budget preserves saved chapters and reading never writes image mappings',async()=>{
  const day=new Date().toISOString().slice(0,10);
  db.prepare('INSERT INTO source_write_budget(day,reserved) VALUES(?,12000) ON CONFLICT(day) DO UPDATE SET reserved=12000').run(day);

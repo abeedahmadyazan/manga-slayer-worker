@@ -1,13 +1,11 @@
 node_modules/
 .wrangler/
-.dev.vars
-.dev.vars.*
-.env
-.env.*
+.dev.vars*
+.env*
+private-*
 *.pem
 *.key
 *.jks
 *.keystore
 *.p12
 *.pfx
-*.secret

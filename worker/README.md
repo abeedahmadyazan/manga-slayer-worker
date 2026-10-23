@@ -1,6 +1,6 @@
 # MANGA SLAYER cloud backend
 
-This Worker provides the Android app API, Firebase email/password and Google authentication, MangaDex catalog access, and account features. It is configured as `yz-manga-api-v2` so the older `yz-manga-api` deployment remains untouched.
+This Worker provides the Android app API, Firebase email/password and Google authentication, MangaDex catalog access, and account features. The destination deployment is `manga-slayer-api`. The optional `compat/` Worker forwards old installed APK URLs to this API without an old D1 binding or scheduled indexing.
 
 ## Storage and authentication
 
@@ -33,15 +33,15 @@ For account migration, export the old D1 database privately, then use `node scri
 
 ## Deployment
 
-The `yz-manga-data-v2` D1 database is attached in `wrangler.toml`; schema changes live in `migrations/`.
+The `manga-slayer-data` D1 database is attached in `wrangler.toml`; schema changes live in `migrations/`.
 
 ```powershell
 npm install
 npm run check
-npx wrangler d1 migrations apply yz-manga-data-v2 --remote
+npx wrangler d1 migrations apply manga-slayer-data --remote
 npx wrangler deploy
 ```
 
-The current deployment is live at `https://yz-manga-api-v2.yznabyd.workers.dev/`. The companion APK is `../YZ-Manga-v2.apk`, installed and checked on SM-S938B. See `../LIVE-VERIFICATION.md` for exact phone and production API checks and their limits.
+The destination API is `https://manga-slayer-api.yz-manga-api-v2.workers.dev/`. Firebase Authentication remains on the existing `yz-manga` project so Google accounts keep their identities. APK downloads are hosted at [GitHub Releases](https://github.com/abeedahmadyazan/manga-slayer-downloads/releases/latest). Cloud deployment is separate from GitHub source hosting; no account data is published to the repository.
 
 Never upload account data, APK signing keys, or service-account files to GitHub. This backend does not need a service-account file.
