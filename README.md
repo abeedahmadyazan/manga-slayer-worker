@@ -1,11 +1,11 @@
-# MANGA SLAYER — Cloudflare Worker source
+# MANGA SLAYER backend
 
-This repository contains the Cloudflare Worker backend source for MANGA SLAYER, prepared for review and quota optimization.
+[Browse the Worker source](./worker) · [Verification report](./worker/MIGRATION-VERIFICATION.md) · [APK downloads](https://github.com/abeedahmadyazan/manga-slayer-downloads/releases/latest)
 
-## Download
+The production API is deployed on Cloudflare's Free plan at `https://manga-slayer-api.yz-manga-api-v2.workers.dev/`. Previously installed APKs keep using `https://yz-manga-api-v2.yznabyd.workers.dev/`, which forwards to the new account. Firebase Authentication remains on the existing project, preserving Google accounts.
 
-[Download the complete Worker source archive](./manga-slayer-worker-source.zip)
+Public images load directly from their CDN. Public source JSON uses the edge cache instead of D1 cache writes. Chapter metadata uses compact snapshots and bounded batch queries. Source ingestion has a conservative daily write budget, while saved chapter numbers and discussion IDs remain available.
 
-Extract the archive, install dependencies with `npm ci`, then follow the included README for checks and setup. Cloudflare credentials and Firebase service-account private keys are intentionally excluded; configure them as Cloudflare Worker secrets in your own account.
+GitHub hosts this source, verification workflows and the APK download repository. Private account data and comments stay in D1. GitHub Actions checks the source and publishes browsable files from the [source archive](./manga-slayer-worker-source.zip); it does not deploy to Cloudflare or require Cloudflare credentials.
 
-This repository contains the Worker backend only. It does not contain the Android app source, APK signing keys, private credentials, or user data. Uploading source to GitHub does not itself reduce Cloudflare usage; usage changes only after an optimized backend is deployed.
+No private account data, authentication tokens, APK signing keys or service-account files belong in this repository. See [setup and limits](./worker/README.md) for details. Free quotas and upstream availability still apply.
