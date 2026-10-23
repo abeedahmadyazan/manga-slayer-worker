@@ -6,6 +6,7 @@ export interface Env extends SecurityBindings {
   FIREBASE_WEB_API_KEY: string;
   DB: D1Database;
   ALLOWED_ORIGINS?: string;
+  DISCUSSIONS_ONLY?: string;
 }
 
 export interface FirebaseClaims {

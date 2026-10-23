@@ -3,12 +3,14 @@ import { ChapterEntry, chapterSlot, mergeChapterEntries, loadChapterIndex, saveC
 import { Env, firestoreDocument, firestoreRequest, firestoreValue, jsonResponse } from "./index";
 import { FirebaseClaims } from "./index";
 import { publicSourceCache } from "./public-cache";
+import {discussionEntry,loadDiscussionNumbers,saveNewDiscussionNumbers} from './discussion-numbers';
 
 type Dict = Record<string, unknown>;
 const encoder = new TextEncoder();
 const API = "https://api.mangadex.org";
 const SAFE_HOSTS = ["mangadex.org", "mangadex.network"];
 const TRANSLATION_VERSION = 2;
+const discussionsOnly = (env:Env) => env.DISCUSSIONS_ONLY === 'true';
 class SourceHttpError extends Error {
   constructor(public status: number) { super("mangadex_unavailable"); }
 }
@@ -237,7 +239,9 @@ async function catalogCards(env:Env,items:Dict[],origin:string):Promise<Dict[]> 
     }
     if(current)cards.push({...await convertManga(env,item,origin,id),latest_chapter_id:String(current.chapter_id),latest_chapter_name:`الفصل ${current.chapter_label}`});
   }
-  if(changed.length)await writeCompactEntries(env.DB,changed,changed);
+  if(changed.length && !discussionsOnly(env))await writeCompactEntries(env.DB,changed,changed);
+  // Discussion mode derives stable IDs from numbers. Browsing the catalog must
+  // not create per-chapter reader mappings or update latest-number rows.
   return cards;
 }
 
@@ -257,6 +261,7 @@ async function rememberManga(env: Env, item: Dict): Promise<void> {
 }
 
 async function chapters(env: Env, manga: number, remoteId: string, origin: string, arabic = true, force = false): Promise<ChapterEntry[]> {
+  if(discussionsOnly(env))return discussionChapters(env,manga,remoteId);
   let saved = await loadChapterIndex(env.DB, manga);
   const now = Math.floor(Date.now()/1000);
   let state = await syncState(env, manga);
@@ -343,6 +348,30 @@ async function chapters(env: Env, manga: number, remoteId: string, origin: strin
   }
 }
 
+async function discussionChapters(env:Env,manga:number,remoteId:string):Promise<ChapterEntry[]> {
+  const saved=await loadDiscussionNumbers(env.DB,manga);
+  try {
+    const aggregate=await publicSourceCache(env,`discussion-numbers-v1:${remoteId}`,
+      ()=>mangaDex(`/manga/${encodeURIComponent(remoteId)}/aggregate`),INDEX_TTL);
+    const bySlot=new Map(saved.map(entry=>[entry.slot,entry]));
+    const fresh:ChapterEntry[]=[];
+    for(const volume of Object.values((aggregate.volumes??{}) as Dict)) {
+      for(const raw of Object.values(((volume as Dict).chapters??{}) as Dict)) {
+        const slot=aggregateSlot(raw as Dict);
+        if(slot===null || bySlot.has(slot))continue;
+        const label=chapterSlot(String((raw as Dict).chapter??''))??'خاص';
+        const entry=discussionEntry(manga,slot,await hashId(`chapter-slot:${manga}:${slot}`),label);
+        bySlot.set(slot,entry);fresh.push(entry);
+      }
+    }
+    await saveNewDiscussionNumbers(env.DB,manga,saved,fresh);
+    return [...bySlot.values()].sort((a,b)=>b.chapter_number-a.chapter_number || a.slot.localeCompare(b.slot));
+  } catch(cause) {
+    if(saved.length)return saved;
+    throw cause;
+  }
+}
+
 async function indexedManga(env: Env, item: Dict, origin: string): Promise<Dict | null> {
   const manga = Number(item.manga_id);
   const stored = await env.DB.prepare('SELECT payload FROM source_latest WHERE manga_id=?1')
@@ -384,6 +413,7 @@ async function mapLimited<T,R>(values:T[],fn:(value:T)=>Promise<R>):Promise<R[]>
 }
 
 export async function refreshSourceIndexes(env: Env): Promise<void> {
+  if(discussionsOnly(env))return;
   const now=Math.floor(Date.now()/1000);
   const rows=await env.DB.prepare("SELECT * FROM source_sync WHERE arabic_synced_at > 0 AND (synced_at < ?1 OR arabic_synced_at < ?1 OR translation_version < ?3) AND retry_after < ?2 ORDER BY synced_at ASC LIMIT 1")
     .bind(now-INDEX_TTL,now,TRANSLATION_VERSION).all<SyncState>();
@@ -528,8 +558,8 @@ async function proxyImage(env: Env, id: number): Promise<Response> {
   return new Response(result.body, { status: 200, headers });
 }
 
-function unavailableReader(message = "صفحات هذا الفصل غير متاحة حاليًا"): Response {
-  return new Response(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#151515;color:#eee;font:18px sans-serif;padding:24px;line-height:1.8}</style><h2>${message}</h2><p>رقم الفصل محفوظ، ويمكنك استخدام زر التعليقات أعلاه. ستظهر الصفحات عند توفرها.</p></html>`, {headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
+function unavailableReader(message = "صفحات هذا الفصل غير متاحة حاليًا", discussion=false): Response {
+  return new Response(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#151515;color:#eee;font:18px sans-serif;padding:24px;line-height:1.8}</style><h2>${message}</h2><p>رقم الفصل محفوظ، ويمكنك استخدام زر التعليقات أعلاه.${discussion?'':' ستظهر الصفحات عند توفرها.'}</p></html>`, {headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
 }
 
 export async function handleSourceRoutes(request: Request, env: Env, claims?: FirebaseClaims): Promise<Response | null> {
@@ -538,6 +568,7 @@ export async function handleSourceRoutes(request: Request, env: Env, claims?: Fi
   try {
     const reader = /^\/reader\/(\d+)$/.exec(path);
     if (reader && request.method === "GET") {
+      if(discussionsOnly(env))return unavailableReader('هذا الفصل مخصص للنقاش والتعليقات',true);
       const entry = await getDoc(env, `sourceChapters/${int(reader[1])}`);
       if (entry?.readable === false) return unavailableReader();
       const pages = await chapterPages(env, int(reader[1]), url.origin);
@@ -559,6 +590,7 @@ export async function handleSourceRoutes(request: Request, env: Env, claims?: Fi
       return id > 0 ? await proxyImage(env, id) : error(404, "الصورة غير موجودة.");
     }
     if (path === "/manga-app-api/download-chapter-as-zip" && request.method === "GET") {
+      if(discussionsOnly(env))return error(403,'تحميل الصفحات متوقف؛ أرقام الفصول وتعليقاتها متاحة.');
       const id = int(url.searchParams.get("chapter_id"));
       return id > 0 ? await downloadChapterZip(env, id) : error(400, "اختر فصلاً.");
     }
@@ -589,6 +621,7 @@ export async function handleSourceRoutes(request: Request, env: Env, claims?: Fi
       return response(item);
     }
     if (path === "/manga-app-api/get-published-manga-chapter-pages" && request.method === "GET") {
+      if(discussionsOnly(env))return collection([],url.searchParams);
       const id = int(url.searchParams.get("chapter_id"));
       const pages = await chapterPages(env, id, url.origin);
       return collection(pages, url.searchParams);

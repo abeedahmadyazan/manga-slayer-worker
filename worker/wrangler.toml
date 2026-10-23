@@ -7,6 +7,7 @@ compatibility_date = "2026-10-23"
 FIREBASE_PROJECT_ID = "yz-manga"
 FIREBASE_WEB_API_KEY = "AIzaSyBjdqemH5ywat9hbYqZAngih0JBvS6BheU"
 ALLOWED_ORIGINS = "*"
+DISCUSSIONS_ONLY = "true"
 
 # FIREBASE_WEB_API_KEY is a Firebase client configuration value, not a server credential.
 # D1 holds app profiles, comments, rate limits, library metadata, and source mappings.
@@ -18,7 +19,7 @@ database_id = "9827e055-910d-48ea-9c9c-7d8ebde8bbec"
 migrations_dir = "migrations"
 
 [triggers]
-crons = ["*/15 * * * *", "17 3 * * *"]
+crons = ["17 3 * * *"]
 
 [[ratelimits]]
 name = "REQUEST_LIMITER"

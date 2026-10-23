@@ -4,12 +4,13 @@ import {DatabaseSync} from 'node:sqlite';
 import {Env,firestoreDocument,firestoreRequest} from '../src/index';
 import {handleCommentRoutes,commentAvatarUrl,legacyCommentDate} from '../src/comments';
 import {protectRequest} from '../src/security';
-import {handleSourceRoutes} from '../src/source';
+import {handleSourceRoutes,refreshSourceIndexes} from '../src/source';
+import {loadDiscussionNumbers} from '../src/discussion-numbers';
 import {ChapterEntry,chapterSlot,mergeChapterEntries,loadChapterIndex,saveChapterIndex} from '../src/chapter-index';
 
 const db=new DatabaseSync(':memory:');
 let queryCount=0;
-for(const file of ['0001_init.sql','0002_comment_indexes.sql','0003_source_index.sql','0004_translation_index.sql','0005_compact_source.sql']) db.exec(readFileSync('migrations/'+file,'utf8'));
+for(const file of ['0001_init.sql','0002_comment_indexes.sql','0003_source_index.sql','0004_translation_index.sql','0005_compact_source.sql','0006_discussion_numbers.sql']) db.exec(readFileSync('migrations/'+file,'utf8'));
 class Statement {
  args:any[]=[];
  constructor(public sql:string){}
@@ -288,6 +289,59 @@ await check('exhausted source budget preserves saved chapters and reading never 
  assert.equal(reader!.status,200);const html=await reader!.text();
  assert(html.includes('https://uploads.mangadex.org/data-saver/hash/one.jpg'));
  assert(reader!.headers.get('content-security-policy')?.includes('https://*.mangadex.org'));
+ assert.equal(Number((db.prepare('SELECT total_changes() AS n').get() as any).n),before);
+});
+await check('discussion mode preserves old IDs, imports 1200 numbers into one row and never writes on repeated reads',async()=>{
+ db.prepare('UPDATE source_write_budget SET reserved=0').run();
+ const discussionEnv={...env,DISCUSSIONS_ONLY:'true'};
+ const manga=45678,uri=origin+'/manga-app-api/get-published-manga-details-info?chapters=true&manga_id='+manga;
+ let calls=0;
+ globalThis.fetch=async(input:any)=>{
+  const url=new URL(String(input));calls++;
+  assert.equal(url.pathname,'/manga/budget-title/aggregate');assert.equal(url.search,'');
+  return Response.json({result:'ok',volumes:{'1':{chapters:Object.fromEntries(Array.from({length:2400},(_,i)=>[i+1,{chapter:String(i+1),id:'unneeded-translation'}]))}}});
+ };
+ const before=Number((db.prepare('SELECT total_changes() AS n').get() as any).n);
+ const originalReaderRows=JSON.stringify(db.prepare('SELECT * FROM source_title_snapshots WHERE manga_id=? ORDER BY part').all(manga));
+ const first=await handleSourceRoutes(new Request(uri),discussionEnv);assert.equal(first!.status,200);
+ const entries=(await first!.json() as any).response.data;
+ assert.equal(entries.length,2400);assert(entries.every((e:any)=>!e.readable && e.chapter_folder_name===''));
+ assert.equal(entries.find((e:any)=>e.chapter_number===1).chapter_id,5_000_000);
+ assert.equal(Number((db.prepare('SELECT total_changes() AS n').get() as any).n)-before,2,'one budget reservation and one title row for 1200 new numbers');
+ assert.equal((db.prepare('SELECT count(*) AS n FROM source_discussion_numbers').get() as any).n,1);
+ assert.equal(JSON.stringify(db.prepare('SELECT * FROM source_title_snapshots WHERE manga_id=? ORDER BY part').all(manga)),originalReaderRows);
+ const stable=Number((db.prepare('SELECT total_changes() AS n').get() as any).n);
+ for(let i=0;i<3;i++) {
+  const response=await handleSourceRoutes(new Request(uri),discussionEnv);assert.equal((await response!.json() as any).response.data.length,2400);
+ }
+ assert.equal(calls,1);assert.equal(Number((db.prepare('SELECT total_changes() AS n').get() as any).n),stable);
+ // A fresh isolate, empty provider aggregate, and then a provider outage cannot
+ // remove saved numbers or their discussion IDs.
+ globalThis.fetch=async()=>Response.json({result:'ok',volumes:{}});
+ const empty=await handleSourceRoutes(new Request(uri),{...discussionEnv});
+ assert.equal((await empty!.json() as any).response.data.length,2400);
+ globalThis.fetch=async()=>{throw new Error('offline');};
+ const offline=await handleSourceRoutes(new Request(uri),{...discussionEnv});
+ assert.equal((await offline!.json() as any).response.data.length,2400);
+ assert.equal((await loadDiscussionNumbers(env.DB,manga)).length,2400);
+ assert.equal(Number((db.prepare('SELECT total_changes() AS n').get() as any).n),stable);
+});
+await check('discussion reader, pages, download and scheduled index do not access the database or provider',async()=>{
+ const discussionEnv={...env,DISCUSSIONS_ONLY:'true'},start=queryCount;
+ globalThis.fetch=async()=>{throw new Error('Discussion mode must not load pages');};
+ const reader=await handleSourceRoutes(new Request(origin+'/reader/5000000'),discussionEnv);
+ assert.equal(reader!.status,200);const html=await reader!.text();assert(html.includes('مخصص للنقاش'));assert(!html.includes('<img'));
+ const pages=await handleSourceRoutes(new Request(origin+'/manga-app-api/get-published-manga-chapter-pages?chapter_id=5000000'),discussionEnv);
+ assert.deepEqual((await pages!.json() as any).response.data,[]);
+ const download=await handleSourceRoutes(new Request(origin+'/manga-app-api/download-chapter-as-zip?chapter_id=5000000'),discussionEnv);
+ assert.equal(download!.status,403);
+ await refreshSourceIndexes(discussionEnv);assert.equal(queryCount,start);
+});
+await check('discussion mode keeps authenticated comments available and reading them performs no writes',async()=>{
+ const discussionEnv={...env,DISCUSSIONS_ONLY:'true'};
+ const before=Number((db.prepare('SELECT total_changes() AS n').get() as any).n);
+ const response=await handleCommentRoutes(new Request(origin+'/manga-app-api/get-chapter-comments?chapter_id=987654'),discussionEnv,claims);
+ assert.equal(response!.status,200);assert.equal((await response!.json() as any).response.data.length,2);
  assert.equal(Number((db.prepare('SELECT total_changes() AS n').get() as any).n),before);
 });
 globalThis.fetch=realFetch;db.close();console.log(`${passed} profile and chapter checks passed`);
