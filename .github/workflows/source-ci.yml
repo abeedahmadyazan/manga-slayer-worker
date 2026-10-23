@@ -4,6 +4,7 @@ on:
     paths:
       - manga-slayer-worker-source.zip
       - .github/workflows/source-ci.yml
+      - worker/**
   workflow_dispatch:
 permissions:
   contents: write
@@ -15,11 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - name: Extract source archive
-        run: unzip -oq manga-slayer-worker-source.zip -d worker
+        run: |
+          if [ ! -d worker/src ] || git diff --name-only HEAD^ HEAD | grep -Fxq 'manga-slayer-worker-source.zip'; then
+            unzip -oq manga-slayer-worker-source.zip -d worker
+          fi
       - name: Install dependencies
         working-directory: worker
         run: npm ci
