@@ -1,0 +1,35 @@
+name = "yz-manga-api-v2"
+main = "src/index.ts"
+compatibility_date = "2026-10-23"
+
+[vars]
+FIREBASE_PROJECT_ID = "yz-manga"
+FIREBASE_WEB_API_KEY = "AIzaSyBjdqemH5ywat9hbYqZAngih0JBvS6BheU"
+ALLOWED_ORIGINS = "*"
+
+# FIREBASE_WEB_API_KEY is a Firebase client configuration value, not a server credential.
+# D1 holds app profiles, comments, rate limits, library metadata, and source mappings.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "yz-manga-data-v2"
+database_id = "c39a757d-47aa-4ab6-a089-7a0cde2934e4"
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["*/15 * * * *", "17 3 * * *"]
+
+[[ratelimits]]
+name = "REQUEST_LIMITER"
+namespace_id = "1058601201"
+simple = { limit = 600, period = 60 }
+
+[[ratelimits]]
+name = "CATALOG_LIMITER"
+namespace_id = "1058601202"
+simple = { limit = 90, period = 60 }
+
+[[ratelimits]]
+name = "DOWNLOAD_LIMITER"
+namespace_id = "1058601203"
+simple = { limit = 3, period = 60 }
